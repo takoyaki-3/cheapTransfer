@@ -10,6 +10,14 @@
 <body>
     <header>
         <h1>最安経路検索</h1>
+        <script src='https://api.tiles.mapbox.com/mapbox-gl-js/v0.51.0/mapbox-gl.js'></script>
+        <link href='https://api.tiles.mapbox.com/mapbox-gl-js/v0.51.0/mapbox-gl.css' rel='stylesheet' />
+      
+        <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+        <style>
+        body { margin:0; padding:0; }
+        #map { position:absolute; top:20%; bottom:0; width:100%; }
+        </style>
     </header>
 
     <main>
@@ -19,13 +27,13 @@
         <form name="locationData">
             <div>
                 <label>
-                    出発地点<input>
+                    出発地点<input id="from">
                 </label>
             </div>
             <div id="relayPoints"></div>
             <div>
                 <label>
-                    到着地点<input>
+                    到着地点<input id="to">
                 </label>
             </div>
         </form>
@@ -33,6 +41,7 @@
             <button type="button" onclick="searchTransfer()">検索</button>
         </div>
         <output></output>
+        <div id='map'></div>
     </main>
 
     <footer>
@@ -41,4 +50,167 @@
         </p>
     </footer>
 </body>
+<script>
+    mapboxgl.accessToken = 'pk.eyJ1IjoidGFrb3lha2kzIiwiYSI6ImNrN2p3OTFidzB3MWQzb29hMHlpNDE5bHIifQ.DRmeCz-ABDUgZOT7bqsWOA';
+    let map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/streets-v9',
+      zoom: 14,
+      center: [139.7639394, 35.6840311]
+    });
+  
+    url = "http://mitu-yoho.d.takoyaki3.com:8002/route";
+  
+    let fromMarker = new mapboxgl.Marker();
+    let toMarker = new mapboxgl.Marker();
+  
+    map.on('load', function () {
+  
+      let addFromMarker = false;
+      let route = {}
+  
+      map.on('click', function(e) {
+  
+        if (!addFromMarker){
+  
+          // marker
+          fromMarker.remove();
+          toMarker.remove();
+  
+          // route
+          if (map.getLayer("route")){
+            map.removeLayer("route");
+          }
+          if (map.getSource("route")){
+            map.removeSource("route");
+          }
+          route.from = [e.lngLat.lng, e.lngLat.lat];
+  
+          fromMarker = new mapboxgl.Marker()
+          .setLngLat(route.from)
+          .addTo(map);
+          addFromMarker = true;
+          document.getElementById( "from" ).value = "("+e.lngLat.lat.toFixed(4)+","+e.lngLat.lng.toFixed(4)+")";
+        }else{
+  
+          route.to = [e.lngLat.lng, e.lngLat.lat];
+          toMarker = new mapboxgl.Marker()
+          .setLngLat(route.to)
+          .addTo(map);
+          document.getElementById( "to" ).value = "("+e.lngLat.lat.toFixed(4)+","+e.lngLat.lng.toFixed(4)+")";
+
+          searchTransfer();
+          const necessaryTime = 2000 + Math.random() * 3000;
+            setTimeout(() => {
+          addRouting(route.from, route.to);
+            }, necessaryTime);
+  
+          addFromMarker = false;
+        }
+  
+  
+      });
+    });
+  
+    // 経路を検索して経路を描画する
+    let addRouting = function(fromPoint, toPoint){
+  
+      let json = {};
+      json.locations = [{"lat":fromPoint[1],"lon":fromPoint[0],"radius":10},{"lat":toPoint[1],"lon":toPoint[0],"radius":10}];
+      json.costing = "auto";
+      json.costing_options = {"auto":{"country_crossing_penalty":2000.0}};
+      json.directions_options = {"units":"km"};
+      json.use_highway = 0;
+      json.avoid_locations = true;
+      json.radius = 100;
+      json.minimum_reachability = 5;
+      json.id = "test_route";
+  
+      let polyline = {};
+  
+      $.ajax({
+        type : "POST",
+        url : url,
+        data : JSON.stringify(json)
+      })
+      .done(function( data ) {
+  
+        polyline.data = data;
+        polyline.decode = decodePolyline(data.trip.legs[0].shape, 6);
+  
+        map.addLayer({
+          "id": "route",
+          "type": "line",
+          "source": {
+            "type": "geojson",
+            "data": {
+              "type": "Feature",
+              "properties": {},
+              "geometry": {
+                "type": "LineString",
+                "coordinates": polyline.decode
+              }
+            }
+          },
+          "layout": {
+            "line-join": "round",
+            "line-cap": "round"
+          },
+          "paint": {
+            "line-color": "#888",
+            "line-width": 8
+          }
+        });
+  
+      });
+    }
+  
+    // polylineのデコード
+  let decodePolyline = function (str, precision) {
+      let index = 0,
+          lat = 0,
+          lng = 0,
+          coordinates = [],
+          shift = 0,
+          result = 0,
+          byte = null,
+          latitudeChange,
+          longitudeChange,
+          factor = Math.pow(10, precision || 6);
+  
+  
+      while (index < str.length) {
+  
+        byte = null;
+        shift = 0;
+        result = 0;
+  
+        do {
+          byte = str.charCodeAt(index++) - 63;
+          result |= (byte & 0x1f) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+  
+        latitudeChange = ((result & 1) ? ~(result >> 1) : (result >> 1));
+  
+        shift = result = 0;
+  
+        do {
+          byte = str.charCodeAt(index++) - 63;
+          result |= (byte & 0x1f) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+  
+        longitudeChange = ((result & 1) ? ~(result >> 1) : (result >> 1));
+  
+        lat += latitudeChange;
+        lng += longitudeChange;
+  
+        coordinates.push([lng / factor, lat / factor]);
+      }
+  
+      return coordinates;
+    };
+  
+    </script>
 </html>
